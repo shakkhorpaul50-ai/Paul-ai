@@ -127,11 +127,11 @@ _system_prompt = (
 
 class ChatModel:
     def __init__(self, model_path: str = MODEL_PATH):
-        # Render Free 512MB tuned: n_ctx 256 default (355MB model needs smaller KV), n_batch 8 (was 32), mmap=True
-        # 500M Q3_K_M actual 355MB + runtime ~130MB + KV ~35MB (256 ctx) = ~520MB fits 512MB borderline
-        # Set N_CTX=512 only if you upgrade Render plan beyond free
-        n_ctx = int(os.environ.get("N_CTX", "256"))
-        n_batch = int(os.environ.get("N_BATCH", "8"))
+        # Render Free 512MB tuned: n_ctx 128 default (355MB model needs minimal KV), n_batch 4 (was 32), mmap=True
+        # 500M Q3_K_M actual 355MB + runtime ~130MB + KV ~17MB (128 ctx) = ~502MB fits 512MB
+        # Set N_CTX=256 or 512 only if you upgrade Render plan beyond free
+        n_ctx = int(os.environ.get("N_CTX", "128"))
+        n_batch = int(os.environ.get("N_BATCH", "4"))
         self.llm = Llama(
             model_path=model_path,
             n_ctx=n_ctx,

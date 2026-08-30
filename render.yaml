@@ -10,9 +10,9 @@ services:
       - key: MODEL_PATH
         value: models/qwen2.5-0.5b-bangla-Q3_K_M.gguf
       - key: N_CTX
-        value: "256"
+        value: "128"
       - key: N_BATCH
-        value: "8"
+        value: "4"
       - key: PYTHON_VERSION
         value: "3.11.9"
     plan: free

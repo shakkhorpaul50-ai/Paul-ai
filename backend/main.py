@@ -13,20 +13,39 @@ model: ChatModel | None = None
 db: Database | None = None
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global model, db
+import threading
+
+_model_lock = threading.Lock()
+_model_loading = False
+
+def _load_model_background():
+    global model, _model_loading
+    with _model_lock:
+        if model is not None or _model_loading:
+            return
+        _model_loading = True
     try:
-        print("[lifespan] Loading ChatModel...")
-        model = ChatModel()
-        print(f"[lifespan] ChatModel loaded: {model.llm}")
+        print("[lifespan] Loading ChatModel in background (355MB Q3_K_M, 24 layers)...")
+        m = ChatModel()
+        with _model_lock:
+            model = m
+            print(f"[lifespan] ChatModel loaded: {model.llm}")
     except Exception as e:
         print(f"[lifespan] ChatModel failed: {e}")
         import traceback
 
         traceback.print_exc()
-        # Keep model as None to allow health checks, chat will error gracefully
-        model = None
+        with _model_lock:
+            model = None
+    finally:
+        with _model_lock:
+            _model_loading = False
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global db
+    # Start DB immediately (fast, in-memory fallback if DATABASE_URL missing)
     try:
         print("[lifespan] Connecting Database...")
         db = Database()
@@ -37,6 +56,10 @@ async def lifespan(app: FastAPI):
 
         traceback.print_exc()
         db = None
+    # Load model in background thread so Render health check passes within 10s (avoids 502)
+    # Render free 512MB: 355MB model + 130MB runtime + 17MB KV (N_CTX 128) = ~502MB
+    threading.Thread(target=_load_model_background, daemon=True).start()
+    print("[lifespan] Model load started in background, app ready for /health")
     yield
 
 
@@ -45,15 +68,37 @@ app = FastAPI(title="AI Chat", lifespan=lifespan)
 
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
+    global model
+    # Lazy load: if model not yet loaded, try to load now (first request after cold start)
     if model is None:
-        raise HTTPException(status_code=503, detail="Model not loaded - check MODEL_PATH and GGUF download (see build logs for curl)")
+        # If background thread is still loading, inform client to retry
+        if _model_loading:
+            raise HTTPException(status_code=503, detail="Model is loading (355MB Q3_K_M, 24 layers) - please retry in 15s (check /health)")
+        # Try to load synchronously if background failed
+        try:
+            print("[chat] Model not loaded, attempting on-demand load...")
+            with _model_lock:
+                if model is None:
+                    model = ChatModel()
+                    print(f"[chat] On-demand model loaded: {model.llm}")
+        except Exception as e:
+            print(f"[chat] On-demand load failed: {e}")
+            import traceback
+
+            traceback.print_exc()
+            raise HTTPException(status_code=503, detail=f"Model not loaded - {e} (check /health, MODEL_PATH={os.environ.get('MODEL_PATH', MODEL_FILE)})")
     if db is None:
+        # In-memory fallback already in Database, so this should not happen
         raise HTTPException(status_code=503, detail="Database not ready - check DATABASE_URL")
     conv_id = req.conversation_id
     if not conv_id:
         conv_id = db.create_conversation()
 
-    history = db.get_history(conv_id)
+    try:
+        history = db.get_history(conv_id)
+    except Exception as e:
+        print(f"[chat] get_history failed: {e}")
+        history = []
     history_dicts = [{"role": m["role"], "content": m["content"]} for m in history]
 
     try:
@@ -77,8 +122,27 @@ def chat(req: ChatRequest):
 @app.get("/health")
 def health():
     mpath = os.environ.get("MODEL_PATH", MODEL_FILE)
-    ok = model is not None and os.path.exists(mpath) and os.path.getsize(mpath) > 10 * 1024 * 1024
-    return {"ok": ok, "model": mpath, "model_exists": os.path.exists(mpath), "model_size_mb": round(os.path.getsize(mpath)/1e6,1) if os.path.exists(mpath) else 0, "db": db is not None and getattr(db, 'url', None) is not None}
+    exists = os.path.exists(mpath)
+    size_mb = round(os.path.getsize(mpath)/1e6,1) if exists else 0
+    # LFS pointer is <2MB and contains git-lfs marker
+    is_pointer = False
+    if exists and size_mb < 2:
+        try:
+            with open(mpath, "r", encoding="utf-8", errors="ignore") as f:
+                if "https://git-lfs.github.com/spec/v1" in f.read(512):
+                    is_pointer = True
+        except:
+            pass
+    return {
+        "ok": model is not None and exists and size_mb > 10,
+        "loading": _model_loading,
+        "model": mpath,
+        "model_exists": exists,
+        "model_size_mb": size_mb,
+        "is_lfs_pointer": is_pointer,
+        "db": db is not None and getattr(db, 'url', None) is not None,
+        "db_mode": "postgres" if db and getattr(db, 'url', None) else "memory",
+    }
 
 
 @app.get("/api/history/{conversation_id}", response_model=ConversationHistory)
