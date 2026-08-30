@@ -29,13 +29,22 @@ async function sendMessage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ message, conversation_id: conversationId }),
         });
-        const data = await res.json();
-        conversationId = data.conversation_id;
-        loadingDiv.textContent = data.response;
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            const msg = data.detail || data.response || `Server error ${res.status}`;
+            loadingDiv.textContent = msg;
+            loadingDiv.classList.remove("loading");
+            loadingDiv.classList.add("error");
+            return;
+        }
+        conversationId = data.conversation_id || conversationId;
+        const reply = data.response || data.detail || "No reply from server.";
+        loadingDiv.textContent = reply;
         loadingDiv.classList.remove("loading");
     } catch (err) {
-        loadingDiv.textContent = "Error: could not reach server.";
+        loadingDiv.textContent = "Error: could not reach server. Check /health - model may be loading (355MB). Try again in 30s. " + (err.message || "");
         loadingDiv.classList.remove("loading");
+        loadingDiv.classList.add("error");
     }
 
     btn.disabled = false;

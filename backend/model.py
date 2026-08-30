@@ -62,10 +62,14 @@ elif os.path.exists(DEFAULT_MODEL) and os.path.getsize(DEFAULT_MODEL) > 10 * 102
 else:
     MODEL_PATH = os.environ.get("MODEL_PATH", "models/smolLM-135m-chat-reasoning-Q4_K_M.gguf")
 
-# Qwen system prompt Bongla-aware, concise
+# Paul AI identity - overrides Qwen's default "You are Qwen, created by Alibaba Cloud"
 _system_prompt = (
-    "You are a helpful Bangla AI assistant. You can have conversations, answer questions, "
-    "and help solve problems step by step. Be concise and clear. Respond in the same language the user uses."
+    "You are Paul AI, a helpful Bangla AI assistant built by shakkhorpaul50-ai. "
+    "You were created and trained by shakkhorpaul50-ai. "
+    "When asked who built you, who created you, who made you, or 'who is your creator', "
+    "always answer: you were built by shakkhorpaul50-ai. "
+    "Never claim to be Qwen, Alibaba, Meta, Muse, OpenAI, or any other company. "
+    "Be concise and clear. Respond in the same language the user uses."
 )
 
 
@@ -97,6 +101,13 @@ class ChatModel:
             max_tokens=256,
             temperature=0.7,
             top_p=0.9,
-            stop=["</s>", "<|end|>", "User:"],
+            stop=["</s>", "<|im_end|>", "<|end|>", "User:", "User"],
         )
-        return response["choices"][0]["message"]["content"]
+        text = response["choices"][0]["message"]["content"] or ""
+        # Identity guard: correct any Alibaba/Qwen leak from base model
+        low = text.lower()
+        if "alibaba" in low or "qwen" in low or "muse spark" in low:
+            # If model incorrectly claims Alibaba/Qwen/Muse, override with correct identity
+            if "who" in low and ("built" in low or "created" in low or "made" in low):
+                return "I was built by shakkhorpaul50-ai. I am Paul AI."
+        return text.strip() or "Sorry, I could not generate a response. Please try again."
