@@ -9,45 +9,97 @@ from llama_cpp import Llama
 DEFAULT_MODEL = "models/qwen2.5-0.5b-bangla-Q3_K_M.gguf"
 
 
-def _ensure_model(path: str) -> str:
-    # Handle Render git-lfs pointer not fetched (file <1MB and contains git-lfs marker)
+RELEASE_URL = "https://github.com/shakkhorpaul50-ai/Paul-ai/releases/download/v1.0/qwen2.5-0.5b-bangla-Q3_K_M.gguf"
+
+
+def _download_via_curl(url: str, dest: str) -> bool:
+    # Try curl first, then urllib fallback - works on Render even without git-lfs
+    os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+    print(f"[model] Downloading 355MB from {url} -> {dest} ...")
     try:
-        if os.path.exists(path):
+        # Prefer curl (faster, shows progress, available on Render)
+        result = subprocess.run(
+            ["curl", "-L", "--progress-bar", "-o", dest, url],
+            timeout=300,
+            check=False,
+        )
+        if result.returncode == 0 and os.path.exists(dest) and os.path.getsize(dest) > 10 * 1024 * 1024:
+            print(f"[model] curl succeeded: {os.path.getsize(dest)/1e6:.1f} MB")
+            return True
+        print(f"[model] curl failed code {result.returncode}, trying urllib...")
+    except Exception as e:
+        print(f"[model] curl exception: {e}")
+    try:
+        import urllib.request
+
+        print("[model] Trying urllib fallback...")
+        urllib.request.urlretrieve(url, dest)
+        if os.path.exists(dest) and os.path.getsize(dest) > 10 * 1024 * 1024:
+            print(f"[model] urllib succeeded: {os.path.getsize(dest)/1e6:.1f} MB")
+            return True
+    except Exception as e:
+        print(f"[model] urllib failed: {e}")
+    return False
+
+
+def _ensure_model(path: str) -> str:
+    # Handle missing file or Render git-lfs pointer not fetched (<2MB + marker)
+    try:
+        needs_download = False
+        reason = ""
+        if not os.path.exists(path):
+            needs_download = True
+            reason = "file missing"
+        else:
             size = os.path.getsize(path)
-            if size < 2 * 1024 * 1024:  # <2MB likely pointer
-                with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                    head = f.read(512)
-                    if "https://git-lfs.github.com/spec/v1" in head:
-                        print(f"[model] Detected LFS pointer for {path} ({size} bytes), trying git lfs pull...")
-                        try:
-                            subprocess.run(["git", "lfs", "pull"], check=False, timeout=120)
-                            # Also try fetch
-                            subprocess.run(["git", "lfs", "fetch", "--all"], check=False, timeout=120)
-                            if os.path.getsize(path) > 10 * 1024 * 1024:
-                                print(f"[model] LFS pull succeeded, now {os.path.getsize(path)/1e6:.1f} MB")
-                                return path
-                        except Exception as e:
-                            print(f"[model] git lfs pull failed: {e}")
-                        # Fallback: try to download via huggingface_hub if available
-                        # User can set MODEL_HF_REPO env var
-                        hf_repo = os.environ.get("MODEL_HF_REPO", "")
-                        if hf_repo:
-                            try:
-                                from huggingface_hub import hf_hub_download
+            if size < 2 * 1024 * 1024:
+                try:
+                    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                        head = f.read(512)
+                        if "https://git-lfs.github.com/spec/v1" in head:
+                            needs_download = True
+                            reason = f"LFS pointer ({size} bytes)"
+                except:
+                    pass
+                if not needs_download and size < 10 * 1024 * 1024:
+                    needs_download = True
+                    reason = f"too small ({size} bytes, expected >10MB)"
+        if needs_download:
+            print(f"[model] Detected {reason} for {path}, trying to fetch...")
+            # 1. Try git lfs pull (works if git-lfs installed, e.g., local)
+            try:
+                subprocess.run(["git", "lfs", "pull"], check=False, timeout=60)
+                subprocess.run(["git", "lfs", "fetch", "--all"], check=False, timeout=60)
+                if os.path.exists(path) and os.path.getsize(path) > 10 * 1024 * 1024:
+                    print(f"[model] LFS pull succeeded: {os.path.getsize(path)/1e6:.1f} MB")
+                    return path
+            except Exception as e:
+                print(f"[model] git lfs pull failed: {e}")
+            # 2. Try GitHub Release direct download (no git-lfs needed, works on Render)
+            release_url = os.environ.get("MODEL_RELEASE_URL", RELEASE_URL)
+            if _download_via_curl(release_url, path):
+                return path
+            # 3. Try HuggingFace Hub if configured
+            hf_repo = os.environ.get("MODEL_HF_REPO", "")
+            if hf_repo:
+                try:
+                    from huggingface_hub import hf_hub_download
+                    import shutil
 
-                                print(f"[model] Downloading from HF {hf_repo}...")
-                                dl = hf_hub_download(repo_id=hf_repo, filename=os.path.basename(path))
-                                import shutil
-
-                                shutil.copy(dl, path)
-                                return path
-                            except Exception as e:
-                                print(f"[model] HF download failed: {e}")
-                        print(f"[model] WARNING: {path} is still LFS pointer, falling back to legacy if exists")
+                    print(f"[model] Downloading from HF {hf_repo}...")
+                    dl = hf_hub_download(repo_id=hf_repo, filename=os.path.basename(path))
+                    shutil.copy(dl, path)
+                    return path
+                except Exception as e:
+                    print(f"[model] HF download failed: {e}")
+            print(f"[model] WARNING: {path} still missing/pointer after all fetches")
         if os.path.exists(path) and os.path.getsize(path) > 10 * 1024 * 1024:
             return path
     except Exception as e:
         print(f"[model] ensure error: {e}")
+        import traceback
+
+        traceback.print_exc()
     return path
 
 
