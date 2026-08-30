@@ -1,0 +1,2 @@
+models/qwen2.5-0.5b-bangla-Q3_K_M.gguf filter=lfs diff=lfs merge=lfs -text
+models/**/*.safetensors filter=lfs diff=lfs merge=lfs -text

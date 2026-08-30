@@ -1,0 +1,13 @@
+transformers==4.44.2
+datasets==2.21.0
+peft==0.12.0
+accelerate==0.33.0
+torch>=2.3.0
+sentencepiece==0.2.2
+kaggle>=1.6.0
+huggingface_hub>=0.24.0
+safetensors>=0.4.3
+numpy<2.0
+# Note: bitsandbytes removed for T4 x2 FP16 LoRA to avoid triton.ops mismatch
+# For QLoRA 4-bit on Linux, use: bitsandbytes==0.43.3 triton==2.3.1
+# For local Windows merge (Python 3.11): use torch CPU + transformers 4.44.2

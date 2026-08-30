@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: ai-chat
+    runtime: python
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: MODEL_PATH
+        value: models/qwen2.5-0.5b-bangla-Q3_K_M.gguf
+      - key: N_CTX
+        value: "256"
+      - key: N_BATCH
+        value: "8"
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+    plan: free
+    disk:
+      name: model-storage
+      mountPath: /opt/render/project/src/models
+      sizeGB: 1

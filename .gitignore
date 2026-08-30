@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.gguf
+*.safetensors
+*.zip
+models/llama.cpp/
+models/merged/
+models/_tmp_*.gguf
+data/
+*.env
+.venv/
+.venv311/
+# Keep deployable 355MB Q3_K_M GGUF + 70MB LoRA adapter (must be after ignores)
+!models/qwen2.5-0.5b-bangla-Q3_K_M.gguf
+!models/qwen500M-bangla-lora/
+!models/qwen500M-bangla-lora/**
