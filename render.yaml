@@ -2,7 +2,7 @@ services:
   - type: web
     name: ai-chat
     runtime: python
-    buildCommand: mkdir -p models && curl -L -o models/qwen2.5-0.5b-bangla-Q3_K_M.gguf https://github.com/shakkhorpaul50-ai/Paul-ai/releases/download/v1.0/qwen2.5-0.5b-bangla-Q3_K_M.gguf && pip install -r backend/requirements.txt
+    buildCommand: mkdir -p models && (test -f models/qwen2.5-0.5b-bangla-Q3_K_M.gguf && test $(stat -c%s models/qwen2.5-0.5b-bangla-Q3_K_M.gguf) -gt 10000000 && echo "Model exists $(du -h models/qwen2.5-0.5b-bangla-Q3_K_M.gguf)" || (echo "Downloading 355MB GGUF..." && curl -L --progress-bar -o models/qwen2.5-0.5b-bangla-Q3_K_M.gguf https://github.com/shakkhorpaul50-ai/Paul-ai/releases/download/v1.0/qwen2.5-0.5b-bangla-Q3_K_M.gguf && ls -lh models/)) && pip install -r backend/requirements.txt
     startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
